@@ -18,4 +18,4 @@ from .Model.visualize import (
     save_overlay_image,
     create_colored_mask_from_class_ids
 )
-from .Model.unet import UNet
+from .Model.unet import ResNet50UNet

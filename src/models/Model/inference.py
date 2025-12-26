@@ -54,7 +54,7 @@ CLASS_COLORS = np.array([
 ], dtype=np.uint8)
 
 
-def load_model(model_path: str = BEST_MODEL_PATH) -> UNet:
+def load_model(model_path: str = BEST_MODEL_PATH) -> ResNet50UNet:
     """Load the U-Net model with trained weights."""
     global _model
     if _model is None:
