@@ -1,6 +1,7 @@
 import torch
+from torchvision import models
 import torch.nn as nn
-from torch.nn.functional import relu
+import torch.nn.functional as F
 
 
 class SpatialAttentionModule(nn.Module):
@@ -57,130 +58,172 @@ class ConvBlock(nn.Module):
         self.conv = nn.Conv2d(in_channels, out_channels, 3, padding=1)
         self.bn = nn.BatchNorm2d(out_channels)
         self.dropout = nn.Dropout2d(p=dropout_p)
-
+    
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
-        x = relu(x)
+        x = F.relu(x)
         x = self.dropout(x)
         return x
 
 
-class UNet(nn.Module):
-    def __init__(self, n_classes=13, use_cbam=True, dropout_p=0.2):
-        super(UNet, self).__init__()
+
+
+class ResNet50UNet(nn.Module):
+    def __init__(self, n_classes=13, use_cbam=True, dropout_p=0.2, pretrained=True):
+        super(ResNet50UNet, self).__init__()
         self.use_cbam = use_cbam
-        self.n_classes = n_classes
-
-        # ENCODER PART
-        self.enc1_1 = ConvBlock(3, 64, dropout_p=dropout_p)
-        self.enc1_2 = ConvBlock(64, 64, dropout_p=dropout_p)
+        
+        resnet = models.resnet50(pretrained=pretrained)
+        
+        # ============ ENCODER (ResNet50) ============
+        # Stage 1: Initial conv + bn + relu
+        self.encoder1 = nn.Sequential(
+            resnet.conv1,      # 7x7 conv, 64 channels
+            resnet.bn1,
+            resnet.relu
+        )
         self.cbam_enc1 = CBAM(64, reduction=16) if use_cbam else None
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        self.enc2_1 = ConvBlock(64, 128, dropout_p=dropout_p)
-        self.enc2_2 = ConvBlock(128, 128, dropout_p=dropout_p)
-        self.cbam_enc2 = CBAM(128, reduction=16) if use_cbam else None
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        self.enc3_1 = ConvBlock(128, 256, dropout_p=dropout_p)
-        self.enc3_2 = ConvBlock(256, 256, dropout_p=dropout_p)
-        self.cbam_enc3 = CBAM(256, reduction=16) if use_cbam else None
-        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        self.enc4_1 = ConvBlock(256, 512, dropout_p=dropout_p)
-        self.enc4_2 = ConvBlock(512, 512, dropout_p=dropout_p)
-        self.cbam_enc4 = CBAM(512, reduction=16) if use_cbam else None
-        self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        # BOTTLENECK
-        self.bottleneck1 = ConvBlock(512, 1024, dropout_p=dropout_p * 1.5)
-        self.bottleneck2 = ConvBlock(1024, 1024, dropout_p=dropout_p * 1.5)
-        self.cbam_bottleneck = CBAM(1024, reduction=16) if use_cbam else None
-
-        # DECODER PART
-        self.up1 = nn.ConvTranspose2d(1024, 512, 2, stride=2)
-        self.dec1_1 = ConvBlock(1024, 512, dropout_p=dropout_p)
-        self.dec1_2 = ConvBlock(512, 512, dropout_p=dropout_p)
-        self.cbam_dec1 = CBAM(512, reduction=16) if use_cbam else None
-
-        self.up2 = nn.ConvTranspose2d(512, 256, 2, stride=2)
-        self.dec2_1 = ConvBlock(512, 256, dropout_p=dropout_p)
-        self.dec2_2 = ConvBlock(256, 256, dropout_p=dropout_p)
-        self.cbam_dec2 = CBAM(256, reduction=16) if use_cbam else None
-
-        self.up3 = nn.ConvTranspose2d(256, 128, 2, stride=2)
-        self.dec3_1 = ConvBlock(256, 128, dropout_p=dropout_p)
-        self.dec3_2 = ConvBlock(128, 128, dropout_p=dropout_p)
-        self.cbam_dec3 = CBAM(128, reduction=16) if use_cbam else None
-
-        self.up4 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        self.dec4_1 = ConvBlock(128, 64, dropout_p=dropout_p)
+        self.pool1 = resnet.maxpool
+        
+        # Stage 2-5: ResNet blocks
+        self.encoder2 = resnet.layer1  # 256 channels
+        self.cbam_enc2 = CBAM(256, reduction=16) if use_cbam else None
+        
+        self.encoder3 = resnet.layer2  # 512 channels
+        self.cbam_enc3 = CBAM(512, reduction=16) if use_cbam else None
+        
+        self.encoder4 = resnet.layer3  # 1024 channels
+        self.cbam_enc4 = CBAM(1024, reduction=16) if use_cbam else None
+        
+        self.encoder5 = resnet.layer4  # 2048 channels
+        self.cbam_enc5 = CBAM(2048, reduction=16) if use_cbam else None
+        
+        # ============ BOTTLENECK ============
+        self.bottleneck = nn.Sequential(
+            ConvBlock(2048, 2048, dropout_p=dropout_p * 1.5),
+            ConvBlock(2048, 2048, dropout_p=dropout_p * 1.5)
+        )
+        self.cbam_bottleneck = CBAM(2048, reduction=16) if use_cbam else None
+        
+        # ============ DECODER ============
+        # Decoder 1: 2048 -> 1024
+        self.up1 = nn.ConvTranspose2d(2048, 1024, 2, stride=2)
+        self.dec1_1 = ConvBlock(2048, 1024, dropout_p=dropout_p)  # 2048 = 1024 (up) + 1024 (skip)
+        self.dec1_2 = ConvBlock(1024, 1024, dropout_p=dropout_p)
+        self.cbam_dec1 = CBAM(1024, reduction=16) if use_cbam else None
+        
+        # Decoder 2: 1024 -> 512
+        self.up2 = nn.ConvTranspose2d(1024, 512, 2, stride=2)
+        self.dec2_1 = ConvBlock(1024, 512, dropout_p=dropout_p)  # 1024 = 512 (up) + 512 (skip)
+        self.dec2_2 = ConvBlock(512, 512, dropout_p=dropout_p)
+        self.cbam_dec2 = CBAM(512, reduction=16) if use_cbam else None
+        
+        # Decoder 3: 512 -> 256
+        self.up3 = nn.ConvTranspose2d(512, 256, 2, stride=2)
+        self.dec3_1 = ConvBlock(512, 256, dropout_p=dropout_p)  # 512 = 256 (up) + 256 (skip)
+        self.dec3_2 = ConvBlock(256, 256, dropout_p=dropout_p)
+        self.cbam_dec3 = CBAM(256, reduction=16) if use_cbam else None
+        
+        # Decoder 4: 256 -> 64
+        self.up4 = nn.ConvTranspose2d(256, 64, 2, stride=2)
+        self.dec4_1 = ConvBlock(128, 64, dropout_p=dropout_p)  # 128 = 64 (up) + 64 (skip)
         self.dec4_2 = ConvBlock(64, 64, dropout_p=dropout_p)
         self.cbam_dec4 = CBAM(64, reduction=16) if use_cbam else None
-
+        
+        # Decoder 5: Final upsampling to original size
+        self.up5 = nn.ConvTranspose2d(64, 64, 2, stride=2)
+        self.dec5 = ConvBlock(64, 64, dropout_p=dropout_p)
+        
+        # Final output layer
         self.out = nn.Conv2d(64, n_classes, 1)
-
+        
+    def center_crop(self, encoder_features, decoder_features):
+        """Crop encoder features to match decoder spatial dimensions"""
+        _, _, h_enc, w_enc = encoder_features.size()
+        _, _, h_dec, w_dec = decoder_features.size()
+        
+        dh = h_enc - h_dec
+        dw = w_enc - w_dec
+        
+        if dh == 0 and dw == 0:
+            return encoder_features
+        
+        h_start = dh // 2
+        w_start = dw // 2
+        
+        return encoder_features[:, :, h_start:h_start+h_dec, w_start:w_start+w_dec]
+    
     def forward(self, x):
-        # ENCODER PART
-        xe11 = self.enc1_1(x)
-        xe12 = self.enc1_2(xe11)
+        # ============ ENCODER ============
+        # Stage 1
+        e1 = self.encoder1(x)  # 64 channels
         if self.use_cbam:
-            xe12 = self.cbam_enc1(xe12)
-        pool1 = self.pool1(xe12)
-
-        xe21 = self.enc2_1(pool1)
-        xe22 = self.enc2_2(xe21)
+            e1 = self.cbam_enc1(e1)
+        p1 = self.pool1(e1)
+        
+        # Stage 2
+        e2 = self.encoder2(p1)  # 256 channels
         if self.use_cbam:
-            xe22 = self.cbam_enc2(xe22)
-        pool2 = self.pool2(xe22)
-
-        xe31 = self.enc3_1(pool2)
-        xe32 = self.enc3_2(xe31)
+            e2 = self.cbam_enc2(e2)
+        
+        # Stage 3
+        e3 = self.encoder3(e2)  # 512 channels
         if self.use_cbam:
-            xe32 = self.cbam_enc3(xe32)
-        pool3 = self.pool3(xe32)
-
-        xe41 = self.enc4_1(pool3)
-        xe42 = self.enc4_2(xe41)
+            e3 = self.cbam_enc3(e3)
+        
+        # Stage 4
+        e4 = self.encoder4(e3)  # 1024 channels
         if self.use_cbam:
-            xe42 = self.cbam_enc4(xe42)
-        pool4 = self.pool4(xe42)
-
-        # BOTTLENECK
-        xe51 = self.bottleneck1(pool4)
-        xe52 = self.bottleneck2(xe51)
+            e4 = self.cbam_enc4(e4)
+        
+        # Stage 5
+        e5 = self.encoder5(e4)  # 2048 channels
         if self.use_cbam:
-            xe52 = self.cbam_bottleneck(xe52)
-
-        # DECODER PART
-        xu1 = self.up1(xe52)
-        xu1 = torch.cat((xu1, xe42), dim=1)
-        xu11 = self.dec1_1(xu1)
-        xu12 = self.dec1_2(xu11)
+            e5 = self.cbam_enc5(e5)
+        
+        # ============ BOTTLENECK ============
+        b = self.bottleneck(e5)
         if self.use_cbam:
-            xu12 = self.cbam_dec1(xu12)
-
-        xu2 = self.up2(xu12)
-        xu2 = torch.cat((xu2, xe32), dim=1)
-        xu21 = self.dec2_1(xu2)
-        xu22 = self.dec2_2(xu21)
+            b = self.cbam_bottleneck(b)
+        
+        # ============ DECODER ============
+        # Decoder 1: 2048 -> 1024
+        d1 = self.up1(b)
+        d1 = torch.cat([d1, self.center_crop(e4, d1)], dim=1)
+        d1 = self.dec1_1(d1)
+        d1 = self.dec1_2(d1)
         if self.use_cbam:
-            xu22 = self.cbam_dec2(xu22)
-
-        xu3 = self.up3(xu22)
-        xu3 = torch.cat((xu3, xe22), dim=1)
-        xu31 = self.dec3_1(xu3)
-        xu32 = self.dec3_2(xu31)
+            d1 = self.cbam_dec1(d1)
+        
+        # Decoder 2: 1024 -> 512
+        d2 = self.up2(d1)
+        d2 = torch.cat([d2, self.center_crop(e3, d2)], dim=1)
+        d2 = self.dec2_1(d2)
+        d2 = self.dec2_2(d2)
         if self.use_cbam:
-            xu32 = self.cbam_dec3(xu32)
-
-        xu4 = self.up4(xu32)
-        xu4 = torch.cat((xu4, xe12), dim=1)
-        xu41 = self.dec4_1(xu4)
-        xu42 = self.dec4_2(xu41)
+            d2 = self.cbam_dec2(d2)
+        
+        # Decoder 3: 512 -> 256
+        d3 = self.up3(d2)
+        d3 = torch.cat([d3, self.center_crop(e2, d3)], dim=1)
+        d3 = self.dec3_1(d3)
+        d3 = self.dec3_2(d3)
         if self.use_cbam:
-            xu42 = self.cbam_dec4(xu42)
-
-        out = self.out(xu42)
+            d3 = self.cbam_dec3(d3)
+        
+        # Decoder 4: 256 -> 64
+        d4 = self.up4(d3)
+        d4 = torch.cat([d4, self.center_crop(e1, d4)], dim=1)
+        d4 = self.dec4_1(d4)
+        d4 = self.dec4_2(d4)
+        if self.use_cbam:
+            d4 = self.cbam_dec4(d4)
+        
+        # Decoder 5: Final upsampling
+        d5 = self.up5(d4)
+        d5 = self.dec5(d5)
+        
+        # Output
+        out = self.out(d5)
         return out

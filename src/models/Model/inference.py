@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from typing import List, Optional, Union, Dict, Any
 import torch.nn.functional as F
-from .unet import UNet
+from .unet import ResNet50UNet
 
 
 # Paths
@@ -13,7 +13,7 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "outp
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Global model instance (lazy loading)
-_model: Optional[UNet] = None
+_model: Optional[ResNet50UNet] = None
 
 # Number of classes for semantic segmentation (Lyft-Udacity dataset)
 NUM_CLASSES = 13
@@ -58,7 +58,7 @@ def load_model(model_path: str = BEST_MODEL_PATH) -> UNet:
     """Load the U-Net model with trained weights."""
     global _model
     if _model is None:
-        _model = UNet(n_classes=NUM_CLASSES, use_cbam=True)
+        _model = ResNet50UNet(n_classes=NUM_CLASSES, use_cbam=True)
         _model.load_state_dict(torch.load(model_path, map_location=DEVICE))
         _model.to(DEVICE)
         _model.eval()
@@ -242,7 +242,7 @@ def refine_mask_with_bilateral(mask: np.ndarray, original_image: np.ndarray) -> 
 def segment_image(
     image: Union[str, np.ndarray],
     filename: str = "image",
-    model: Optional[UNet] = None,
+    model: Optional[ResNet50UNet] = None,
     return_overlay: bool = True
 ) -> Dict[str, Any]:
     """
