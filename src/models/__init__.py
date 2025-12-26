@@ -5,6 +5,8 @@ from .Model.inference import (
     load_model,
     get_class_names,
     get_class_colors,
+    clean_segmentation_mask,
+    refine_mask_with_bilateral,
     CLASS_NAMES,
     CLASS_COLORS,
     NUM_CLASSES

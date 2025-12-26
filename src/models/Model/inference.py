@@ -151,6 +151,92 @@ def get_class_counts(mask: np.ndarray) -> Dict[str, int]:
     return class_counts
 
 
+def clean_segmentation_mask(mask: np.ndarray, kernel_size: int = 5, min_area: int = 100) -> np.ndarray:
+    """
+    Clean up segmentation mask to reduce noise and ensure dominant colors per object.
+    
+    Uses morphological operations and connected component analysis to:
+    1. Remove small isolated noise pixels
+    2. Fill small holes within objects
+    3. Smooth object boundaries
+    
+    Args:
+        mask: 2D numpy array with class IDs (0 to NUM_CLASSES-1)
+        kernel_size: Size of morphological kernel (larger = more smoothing)
+        min_area: Minimum area for a connected component to be kept
+        
+    Returns:
+        Cleaned mask with same shape
+    """
+    cleaned_mask = mask.copy()
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    
+    # Process each class separately (except background)
+    for class_idx in range(1, NUM_CLASSES):
+        # Create binary mask for this class
+        class_binary = (mask == class_idx).astype(np.uint8) * 255
+        
+        if class_binary.sum() == 0:
+            continue
+        
+        # Apply morphological closing (fill small holes)
+        closed = cv2.morphologyEx(class_binary, cv2.MORPH_CLOSE, kernel)
+        
+        # Apply morphological opening (remove small noise)
+        opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel)
+        
+        # Remove small connected components
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(opened, connectivity=8)
+        
+        for label_idx in range(1, num_labels):
+            area = stats[label_idx, cv2.CC_STAT_AREA]
+            if area < min_area:
+                # Remove small components by setting them to 0
+                opened[labels == label_idx] = 0
+        
+        # Update the cleaned mask where this class was cleaned
+        # Only update pixels that were originally this class or are now filled
+        cleaned_mask[opened > 0] = class_idx
+    
+    # Second pass: Apply median filter to smooth boundaries between classes
+    # This helps with jagged edges between different classes
+    cleaned_mask = cv2.medianBlur(cleaned_mask, 3)
+    
+    return cleaned_mask
+
+
+def refine_mask_with_bilateral(mask: np.ndarray, original_image: np.ndarray) -> np.ndarray:
+    """
+    Refine segmentation mask using edge information from original image.
+    Uses bilateral filtering approach to preserve edges while smoothing.
+    
+    Args:
+        mask: 2D numpy array with class IDs
+        original_image: Original BGR image for edge guidance
+        
+    Returns:
+        Refined mask
+    """
+    # Convert original to grayscale for edge detection
+    gray = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
+    
+    # Detect edges
+    edges = cv2.Canny(gray, 50, 150)
+    
+    # Dilate edges slightly
+    edge_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    edges_dilated = cv2.dilate(edges, edge_kernel, iterations=1)
+    
+    # Create edge mask (where edges are NOT present)
+    non_edge_mask = (edges_dilated == 0).astype(np.uint8)
+    
+    # Apply stronger smoothing only in non-edge regions
+    smoothed = cv2.medianBlur(mask, 5)
+    
+    # Combine: keep original at edges, use smoothed elsewhere
+    refined = np.where(non_edge_mask > 0, smoothed, mask)
+    
+    return refined.astype(np.uint8)
 
 
 def segment_image(
@@ -198,17 +284,24 @@ def segment_image(
     # Convert mask to numpy
     mask_np = pred_mask.squeeze().cpu().numpy().astype(np.uint8)
     
-    # Resize mask back to original size
+    # Resize mask back to original size (use INTER_NEAREST to preserve class labels)
     mask_resized = cv2.resize(mask_np, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
     
+    # Post-process mask to clean up noise and ensure dominant colors per object
+    # Step 1: Clean segmentation with morphological operations
+    mask_cleaned = clean_segmentation_mask(mask_resized, kernel_size=7, min_area=200)
+    
+    # Step 2: Refine mask using edge information from original image
+    mask_refined = refine_mask_with_bilateral(mask_cleaned, original_image)
+    
     # Create colored visualization mask (RGB format)
-    colored_mask = create_colored_mask(mask_resized)
+    colored_mask = create_colored_mask(mask_refined)
     
     # Convert colored mask to BGR for saving with cv2 (cv2.imwrite expects BGR)
     colored_mask_bgr = cv2.cvtColor(colored_mask, cv2.COLOR_RGB2BGR)
     
-    # Get class counts and detected classes
-    class_counts = get_class_counts(mask_resized)
+    # Get class counts and detected classes (from refined mask)
+    class_counts = get_class_counts(mask_refined)
     detected_classes = [name for name in class_counts.keys() if name != "Background"]
     
     # Check for specific important classes (vehicles, pedestrians, roads)
