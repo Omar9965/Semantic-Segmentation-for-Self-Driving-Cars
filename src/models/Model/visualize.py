@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, List
 import matplotlib.pyplot as plt
 
 # Import color palette from inference module for consistency
-from .inference import CLASS_COLORS, CLASS_NAMES, NUM_CLASSES
+from .inference import CLASS_COLORS,  NUM_CLASSES
 
 
 def create_colored_mask_from_class_ids(mask: np.ndarray) -> np.ndarray:
