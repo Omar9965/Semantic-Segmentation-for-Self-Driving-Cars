@@ -35,21 +35,22 @@ CLASS_NAMES = [
     "Traffic Sign"      # 12
 ]
 
-# Color map for visualization (RGB)
+# Color map for visualization (RGB) - Based on CARLA/CityScapes palette for consistency
+# These colors are designed to be high-contrast and visually distinct
 CLASS_COLORS = np.array([
-    [0, 0, 0],          # Background - Black
-    [70, 70, 70],       # Building - Gray
-    [190, 153, 153],    # Fence - Light Gray
-    [250, 170, 160],    # Other - Peach
-    [220, 20, 60],      # Pedestrian - Red
-    [153, 153, 153],    # Pole - Medium Gray
-    [157, 234, 50],     # Road Line - Yellow-Green
-    [128, 64, 128],     # Road - Purple
-    [244, 35, 232],     # Sidewalk - Pink
-    [107, 142, 35],     # Vegetation - Olive
-    [0, 0, 142],        # Vehicle - Blue
-    [102, 102, 156],    # Wall - Blue-Gray
-    [220, 220, 0]       # Traffic Sign - Yellow
+    [0, 0, 0],          # 0: Background - Black
+    [70, 70, 70],       # 1: Building - Gray (CARLA standard)
+    [190, 153, 153],    # 2: Fence - Light Gray/Pink (CARLA standard)
+    [55, 90, 80],       # 3: Other - Teal (CARLA "Other")
+    [220, 20, 60],      # 4: Pedestrian - Crimson Red (CARLA standard)
+    [153, 153, 153],    # 5: Pole - Medium Gray (CARLA standard)
+    [157, 234, 50],     # 6: Road Line - Bright Yellow-Green (CARLA RoadLine)
+    [128, 64, 128],     # 7: Road - Purple (CARLA/CityScapes standard)
+    [244, 35, 232],     # 8: Sidewalk - Magenta/Pink (CARLA standard)
+    [107, 142, 35],     # 9: Vegetation - Olive Green (CARLA standard)
+    [0, 0, 142],        # 10: Vehicle - Dark Blue (CARLA Car standard)
+    [102, 102, 156],    # 11: Wall - Blue-Gray (CARLA standard)
+    [220, 220, 0]       # 12: Traffic Sign - Yellow (CARLA standard)
 ], dtype=np.uint8)
 
 
@@ -118,13 +119,25 @@ def create_colored_mask(mask: np.ndarray) -> np.ndarray:
 
 
 def create_overlay(original: np.ndarray, colored_mask: np.ndarray, alpha: float = 0.5) -> np.ndarray:
-    """Create an overlay of the colored segmentation mask on the original image."""
+    """Create an overlay of the colored segmentation mask on the original image.
+    
+    Args:
+        original: Original image in BGR format
+        colored_mask: Colored segmentation mask in RGB format
+        alpha: Blending factor (0.0-1.0), higher = more mask visibility
+    
+    Returns:
+        Blended overlay image in BGR format
+    """
     # Ensure mask is same size as original
     if colored_mask.shape[:2] != original.shape[:2]:
         colored_mask = cv2.resize(colored_mask, (original.shape[1], original.shape[0]), interpolation=cv2.INTER_NEAREST)
     
+    # Convert colored mask from RGB to BGR for proper blending with original (which is BGR)
+    colored_mask_bgr = cv2.cvtColor(colored_mask, cv2.COLOR_RGB2BGR)
+    
     # Blend
-    overlay = cv2.addWeighted(original, 1 - alpha, colored_mask, alpha, 0)
+    overlay = cv2.addWeighted(original, 1 - alpha, colored_mask_bgr, alpha, 0)
     return overlay
 
 
@@ -188,8 +201,11 @@ def segment_image(
     # Resize mask back to original size
     mask_resized = cv2.resize(mask_np, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
     
-    # Create colored visualization mask
+    # Create colored visualization mask (RGB format)
     colored_mask = create_colored_mask(mask_resized)
+    
+    # Convert colored mask to BGR for saving with cv2 (cv2.imwrite expects BGR)
+    colored_mask_bgr = cv2.cvtColor(colored_mask, cv2.COLOR_RGB2BGR)
     
     # Get class counts and detected classes
     class_counts = get_class_counts(mask_resized)
@@ -207,7 +223,7 @@ def segment_image(
     
     # Save images to output directory
     original_url = save_image(original_image, f"{base_name}_original.png")
-    mask_url = save_image(colored_mask, f"{base_name}_mask.png")
+    mask_url = save_image(colored_mask_bgr, f"{base_name}_mask.png")
     
     # Create and save overlay if requested
     overlay_url = None

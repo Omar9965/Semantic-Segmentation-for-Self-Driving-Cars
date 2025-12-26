@@ -5,6 +5,27 @@ import numpy as np
 from typing import Optional, Dict, Any, List
 import matplotlib.pyplot as plt
 
+# Import color palette from inference module for consistency
+from .inference import CLASS_COLORS, CLASS_NAMES, NUM_CLASSES
+
+
+def create_colored_mask_from_class_ids(mask: np.ndarray) -> np.ndarray:
+    """
+    Create a colored segmentation mask from class ID predictions.
+    Uses the same color palette as inference.py for consistency.
+    
+    Args:
+        mask: 2D numpy array with class IDs (0 to NUM_CLASSES-1)
+        
+    Returns:
+        RGB colored mask
+    """
+    h, w = mask.shape
+    colored = np.zeros((h, w, 3), dtype=np.uint8)
+    for class_idx in range(NUM_CLASSES):
+        colored[mask == class_idx] = CLASS_COLORS[class_idx]
+    return colored
+
 
 def base64_to_numpy(b64_string: str) -> np.ndarray:
     """Convert base64 encoded image string to numpy array."""
