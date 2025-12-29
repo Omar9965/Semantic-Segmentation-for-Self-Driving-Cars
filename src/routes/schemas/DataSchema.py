@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Optional
 
 class SegmentationResult(BaseModel):
     """Result for a single semantic segmentation"""
@@ -9,11 +9,6 @@ class SegmentationResult(BaseModel):
     overlay_url: Optional[str]     
     width: int
     height: int
-    detected_classes: List[str]           # List of detected class names
-    class_counts: Dict[str, int]          # Pixel count per class
-    has_vehicles: bool                    # Whether vehicles are detected
-    has_pedestrians: bool                 # Whether pedestrians are detected
-    has_road: bool                        # Whether road is detected
 
 
 class MultipleSegmentationResponse(BaseModel):

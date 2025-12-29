@@ -300,15 +300,6 @@ def segment_image(
     # Convert colored mask to BGR for saving with cv2 (cv2.imwrite expects BGR)
     colored_mask_bgr = cv2.cvtColor(colored_mask, cv2.COLOR_RGB2BGR)
     
-    # Get class counts and detected classes (from refined mask)
-    class_counts = get_class_counts(mask_refined)
-    detected_classes = [name for name in class_counts.keys() if name != "Background"]
-    
-    # Check for specific important classes (vehicles, pedestrians, roads)
-    has_vehicles = "Vehicle" in detected_classes
-    has_pedestrians = "Pedestrian" in detected_classes
-    has_road = "Road" in detected_classes
-    
     # Generate unique suffix for this segmentation
     import time
     timestamp = int(time.time() * 1000)
@@ -331,11 +322,6 @@ def segment_image(
         "overlay_url": overlay_url,
         "width": original_w,
         "height": original_h,
-        "detected_classes": detected_classes,
-        "class_counts": class_counts,
-        "has_vehicles": has_vehicles,
-        "has_pedestrians": has_pedestrians,
-        "has_road": has_road,
     }
     
 def segment_multiple_images(
@@ -362,12 +348,5 @@ def segment_multiple_images(
     return {"results": results}
 
 
-def get_class_names() -> List[str]:
-    """Return the list of class names."""
-    return CLASS_NAMES
 
-
-def get_class_colors() -> np.ndarray:
-    """Return the color map for visualization."""
-    return CLASS_COLORS
 
