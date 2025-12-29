@@ -7,7 +7,7 @@ import os
 
 app = FastAPI(
     title="Car Segmentation API",
-    description="U-Net based car segmentation with CBAM attention (trained on Carvana dataset)",
+    description="U-Net based car segmentation with CBAM attention",
     version="0.1.0"
 )
 
