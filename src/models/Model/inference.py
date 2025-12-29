@@ -348,5 +348,12 @@ def segment_multiple_images(
     return {"results": results}
 
 
+def get_class_names() -> List[str]:
+    """Return the list of class names."""
+    return CLASS_NAMES
 
+
+def get_class_colors() -> np.ndarray:
+    """Return the color map for visualization."""
+    return CLASS_COLORS
 
