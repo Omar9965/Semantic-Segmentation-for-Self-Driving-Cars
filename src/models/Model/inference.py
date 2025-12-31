@@ -95,12 +95,6 @@ def preprocess_image(image: np.ndarray) -> tuple[torch.Tensor, tuple[int, int]]:
     return image, original_size
 
 
-def numpy_to_base64(image: np.ndarray) -> str:
-    """Convert numpy array to base64 encoded PNG string."""
-    _, buffer = cv2.imencode('.png', image)
-    return buffer
-
-
 def save_image(image: np.ndarray, filename: str) -> str:
     """Save image to output directory and return the URL path."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -139,16 +133,6 @@ def create_overlay(original: np.ndarray, colored_mask: np.ndarray, alpha: float 
     # Blend
     overlay = cv2.addWeighted(original, 1 - alpha, colored_mask_bgr, alpha, 0)
     return overlay
-
-
-def get_class_counts(mask: np.ndarray) -> Dict[str, int]:
-    """Get pixel counts for each detected class."""
-    unique, counts = np.unique(mask, return_counts=True)
-    class_counts = {}
-    for class_idx, count in zip(unique, counts):
-        if class_idx < len(CLASS_NAMES):
-            class_counts[CLASS_NAMES[class_idx]] = int(count)
-    return class_counts
 
 
 def clean_segmentation_mask(mask: np.ndarray, kernel_size: int = 5, min_area: int = 100) -> np.ndarray:
